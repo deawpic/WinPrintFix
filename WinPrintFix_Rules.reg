@@ -1,0 +1,40 @@
+Windows Registry Editor Version 5.00
+
+; ========================================================
+; WinPrintFix - Universal Windows Print & SMB Sharing Fix
+; ========================================================
+
+; 1. PrintNightmare RPC Privacy Fix (0x0000011b)
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Print]
+"RpcAuthnLevelPrivacyEnabled"=dword:00000000
+
+; 2. Point and Print Driver v3 Policies (0x00000709)
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Printers]
+"CopyFilesPolicy"=dword:00000001
+"RpcClientProtocol"=dword:00000001
+"RpcOverNamedPipes"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint]
+"NoWarningNoElevationOnInstall"=dword:00000001
+"NoWarningNoElevationOnUpdate"=dword:00000001
+"RestrictDriverInstallationToAdministrators"=dword:00000000
+
+; 3. Windows Print Spooler RPC Policies & NTLM Workgroup Fallback (0x00000bc4)
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Printers\RPC]
+"RpcUseNamedPipeProtocol"=dword:00000001
+"RpcAuthentication"=dword:00000000
+"RpcProtocols"=dword:00000007
+"ForceKerberosForRpc"=dword:00000000
+"RpcTcpPort"=dword:00000000
+
+; 4. Lanman SMB Insecure Guest & Disable Signing (0x80070035 / Access Denied Fix)
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters]
+"AllowInsecureGuestAuth"=dword:00000001
+"EnableInsecureGuestLogons"=dword:00000001
+"RequireSecuritySignature"=dword:00000000
+"EnableSecuritySignature"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters]
+"requiresecuritysignature"=dword:00000000
+"enablesecuritysignature"=dword:00000000
+

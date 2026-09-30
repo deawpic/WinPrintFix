@@ -1,0 +1,99 @@
+# อัปเกรดสิทธิ์เป็น Administrator อัตโนมัติ
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "กำลังขอสิทธิ์ Administrator... กรุณากด Yes บนหน้าต่าง UAC" -ForegroundColor Yellow
+    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"\$PSCommandPath`"" -Verb RunAs
+    Exit
+}
+
+Clear-Host
+Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Host "  ระบบแก้ไขแชร์เครื่องพิมพ์ + ปลดบล็อก SMB & Driver v3   " -ForegroundColor Cyan
+Write-Host "==========================================================" -ForegroundColor Cyan
+
+# ดึงข้อมูลเวอร์ชันระบบ
+\$OSVersion = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").DisplayVersion
+\$ProductName = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").ProductName
+
+Write-Host "ตรวจพบ: \(ProductName (เวอร์ชัน \)OSVersion)" -ForegroundColor Green
+
+# แปลงเวอร์ชันเป็นตัวเลขเพื่อเปรียบเทียบ (เช่น 24, 25, 26)
+\$VersionNum = 0
+if (\$OSVersion -match "(\d+)") { \(VersionNum = [int]\)matches }
+
+# กำหนดพาธ Registry ที่สำคัญ
+\$PrintPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Print"
+\$LanmanPath = "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters"
+\$GroupPolicyPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers"
+\$PointPrintPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint"
+
+# ----------------------------------------------------
+# ฟังก์ชันส่วนกลางที่ 1: ปลดล็อกข้อจำกัดของเน็ตเวิร์ก SMB (แก้ไขสิทธิ์เข้าใช้งานทั่วไปที่ไม่มีการยืนยันตัวตน)
+# ----------------------------------------------------
+Write-Host "`n[SMB Network Fix] กำลังเปิดสิทธิ์การเข้าถึงแบบไม่ต้องยืนยันตัวตน (Insecure Guest Access)..." -ForegroundColor Yellow
+
+# รันคำสั่งโครงสร้าง SMB Client และ Server เพื่อปลดล็อกข้อจำกัดความปลอดภัยที่เข้มงวดเกินไป
+Set-SmbClientConfiguration -EnableInsecureGuestLogons $true -Force | Out-Null
+Set-SmbClientConfiguration -RequireSecuritySignature $false -Force | Out-Null
+Set-SmbServerConfiguration -RequireSecuritySignature $false -Force | Out-Null
+Write-Host "-> ปลดล็อก SMB Signing และยอมรับ Insecure Guest Logons สำเร็จ" -ForegroundColor Gray
+
+# ----------------------------------------------------
+# ฟังก์ชันส่วนกลางที่ 2: ปลดล็อกข้อจำกัดสิทธิ์ของ Driver v3 ข้ามเครือข่าย
+# ----------------------------------------------------
+Write-Host "`n[Driver Fix] กำลังปลดบล็อกนโยบายห้ามใช้ไดรเวอร์แบบเก่า (v3)..." -ForegroundColor Yellow
+
+if (-not (Test-Path \(GroupPolicyPath)) { New-Item -Path\)GroupPolicyPath -Force | Out-Null }
+if (-not (Test-Path \(PointPrintPath)) { New-Item -Path\)PointPrintPath -Force | Out-Null }
+
+# ปลดบล็อกข้อจำกัด Point and Print (ยอมรับ Package ข้ามเครือข่าย)
+New-ItemProperty -Path \$GroupPolicyPath -Name "CopyFilesPolicy" -Value 1 -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path \$PointPrintPath -Name "NoWarningNoElevationOnInstall" -Value 1 -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path \$PointPrintPath -Name "NoWarningNoElevationOnUpdate" -Value 1 -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path \$PointPrintPath -Name "RestrictDriverInstallationToAdministrators" -Value 0 -PropertyType DWORD -Force | Out-Null
+Write-Host "-> เปิดนโยบายยอมรับและติดตั้งแพลตฟอร์มไดรเวอร์ v3 สำเร็จ" -ForegroundColor Gray
+
+# ----------------------------------------------------
+# เงื่อนไขระบบใหม่: ตรวจพบว่าเป็น Windows 11 ที่มีเวอร์ชันตั้งแต่ 24 ขึ้นไป (24H2, 25H2, 26H1, 26H2)
+# ----------------------------------------------------
+if (\(ProductName -like "*Windows 11*" -and \)VersionNum -ge 24) {
+    Write-Host "`n[ระบบใหม่ 24H2+] กำลังปลดล็อกขีดจำกัดความปลอดภัย RPC ของ Windows รุ่นใหม่..." -ForegroundColor Magenta
+    
+    # 1. ลดระดับการเข้ารหัส RPC เพื่อให้เครื่องลูกเข้าถึงได้ (สำหรับกรณีเป็นเครื่องแม่)
+    if (-not (Test-Path $PrintPath)) { New-Item -Path $PrintPath -Force | Out-Null }
+    New-ItemProperty -Path $PrintPath -Name "RpcAuthnLevelPrivacyEnabled" -Value 0 -PropertyType DWORD -Force | Out-Null
+    Write-Host "-> ตั้งค่า RpcAuthnLevelPrivacyEnabled = 0 สำเร็จ" -ForegroundColor Gray
+    
+    # 2. ตั้งค่าโปรโตคอลฝั่งเครื่องลูกให้คุยแบบ RPC over named pipes (สำหรับกรณีเป็นเครื่องลูก)
+    New-ItemProperty -Path $GroupPolicyPath -Name "RpcClientProtocol" -Value 1 -PropertyType DWORD -Force | Out-Null
+    New-ItemProperty -Path $GroupPolicyPath -Name "RpcOverNamedPipes" -Value 1 -PropertyType DWORD -Force | Out-Null
+    Write-Host "-> บังคับใช้โปรโตคอล RPC over named pipes สำเร็จ" -ForegroundColor Gray
+    
+    # 3. เปิดระบบสิทธิ์แลนทั่วไป (Allow Insecure Guest Auth) ผ่าน Registry เสริมความชัวร์
+    New-ItemProperty -Path $LanmanPath -Name "AllowInsecureGuestAuth" -Value 1 -PropertyType DWORD -Force | Out-Null
+    Write-Host "-> ตั้งค่า AllowInsecureGuestAuth = 1 สำเร็จ" -ForegroundColor Gray
+} 
+
+# ----------------------------------------------------
+# เงื่อนไขระบบเก่า: Windows 10 หรือ Windows 11 รุ่นเก่า (21H2, 22H2, 23H2)
+# ----------------------------------------------------
+else {
+    Write-Host "`n[ระบบเก่า] กำลังตั้งค่าระบบเน็ตเวิร์กเพื่อให้เข้ากันได้กับวินโดวส์รุ่นใหม่..." -ForegroundColor Magenta
+    
+    if (-not (Test-Path \(PrintPath)) { New-Item -Path\)PrintPath -Force | Out-Null }
+    New-ItemProperty -Path \$PrintPath -Name "RpcAuthnLevelPrivacyEnabled" -Value 0 -PropertyType DWORD -Force | Out-Null
+    Write-Host "-> ตั้งค่า RpcAuthnLevelPrivacyEnabled = 0 สำเร็จ" -ForegroundColor Gray
+    
+    New-ItemProperty -Path \$LanmanPath -Name "AllowInsecureGuestAuth" -Value 1 -PropertyType DWORD -Force | Out-Null
+    Write-Host "-> ตั้งค่า AllowInsecureGuestAuth = 1 สำเร็จ" -ForegroundColor Gray
+}
+
+# ----------------------------------------------------
+# รีสตาร์ตบริการเพื่อให้ระบบเปิดรับค่าใหม่
+# ----------------------------------------------------
+Restart-Service -Name "Spooler" -Force
+Write-Host "`n-> รีสตาร์ตบริการ Print Spooler เรียบร้อยแล้ว" -ForegroundColor Green
+
+Write-Host "`n==========================================================" -ForegroundColor Cyan
+Write-Host "     แก้ไขเสร็จสิ้น! แนะนำให้รีสตาร์ตคอมพิวเตอร์ 1 ครั้ง     " -ForegroundColor Yellow
+Write-Host "==========================================================" -ForegroundColor Cyan
+Read-Host "กด Enter เพื่อปิดหน้าต่างนี้..."

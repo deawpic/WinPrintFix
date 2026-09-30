@@ -1,0 +1,88 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Publish Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compile WinPrintFix.exe
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\build.ps1 -Configuration Release
+
+      - name: Verify Binary Output
+        shell: powershell
+        run: |
+          $exePath = "bin\WinPrintFix.exe"
+          if (-not (Test-Path $exePath)) {
+            Write-Error "[FAIL] WinPrintFix.exe was not created."
+            exit 1
+          }
+          $item = Get-Item $exePath
+          Write-Host "[OK] Binary found: $($item.FullName) ($($item.Length) bytes)"
+
+      - name: Package Release Assets & Compute Checksums
+        id: package
+        shell: powershell
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $zipName = "WinPrintFix-$tag.zip"
+          $stagingDir = "release-staging"
+
+          # Prepare staging folder
+          New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
+          Copy-Item -Path "bin\WinPrintFix.exe" -Destination $stagingDir
+          Copy-Item -Path "src\WinPrintFix.ps1" -Destination $stagingDir
+          Copy-Item -Path "WinPrintFix.bat" -Destination $stagingDir
+          Copy-Item -Path "WinPrintFix_Rules.reg" -Destination $stagingDir
+          Copy-Item -Path "README.md" -Destination $stagingDir
+
+          # Create zip archive
+          Compress-Archive -Path "$stagingDir\*" -DestinationPath $zipName -Force
+          Write-Host "[OK] Created zip archive: $zipName"
+
+          # Calculate SHA-256 checksums
+          $hashExe = (Get-FileHash -Path "bin\WinPrintFix.exe" -Algorithm SHA256).Hash.ToLower()
+          $hashZip = (Get-FileHash -Path $zipName -Algorithm SHA256).Hash.ToLower()
+          $hashReg = (Get-FileHash -Path "WinPrintFix_Rules.reg" -Algorithm SHA256).Hash.ToLower()
+
+          $checksums = @"
+$hashExe  WinPrintFix.exe
+$hashZip  $zipName
+$hashReg  WinPrintFix_Rules.reg
+"@
+          $checksums | Set-Content -Path "SHA256SUMS.txt" -Encoding ASCII
+          Write-Host "[OK] Generated SHA256SUMS.txt"
+
+          # Pass zip name to env
+          Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_ZIP=$zipName"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "WinPrintFix ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            bin/WinPrintFix.exe
+            ${{ env.RELEASE_ZIP }}
+            WinPrintFix_Rules.reg
+            WinPrintFix.bat
+            SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

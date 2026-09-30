@@ -1,0 +1,39 @@
+# ==========================================
+# Agent Harness & Skill Governance (Do Not Track)
+# ==========================================
+.agents/
+.gemini/
+.agy/
+scratch/
+backups/
+*.log
+*.tmp
+*.bak
+transcript*.jsonl
+transcript_full*.jsonl
+AGENTS.md
+docs/
+
+# ==========================================
+# IDE & System Files
+# ==========================================
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ==========================================
+# Build Artifacts & Packaging Output
+# ==========================================
+bin/
+obj/
+*.pdb
+release-staging/
+*.zip
+SHA256SUMS.txt
+
