@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -60,11 +61,9 @@ jobs:
           $hashZip = (Get-FileHash -Path $zipName -Algorithm SHA256).Hash.ToLower()
           $hashReg = (Get-FileHash -Path "WinPrintFix_Rules.reg" -Algorithm SHA256).Hash.ToLower()
 
-          @(
-            "$hashExe  WinPrintFix.exe",
-            "$hashZip  $zipName",
-            "$hashReg  WinPrintFix_Rules.reg"
-          ) | Set-Content -Path "SHA256SUMS.txt" -Encoding ASCII
+          "$hashExe  WinPrintFix.exe" | Out-File -FilePath "SHA256SUMS.txt" -Encoding ASCII
+          "$hashZip  $zipName" | Out-File -FilePath "SHA256SUMS.txt" -Append -Encoding ASCII
+          "$hashReg  WinPrintFix_Rules.reg" | Out-File -FilePath "SHA256SUMS.txt" -Append -Encoding ASCII
           Write-Host "[OK] Generated SHA256SUMS.txt"
 
           # Pass zip name to env
